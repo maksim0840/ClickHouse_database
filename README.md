@@ -6,7 +6,12 @@ QuickStart
 Подключение:
 1) Преносим папку с проектом, подключаем файл ClientWrapper и имортируем класс DB
 2) Создаём объект класса DB, генерирующий клиент подключения к базе по данным из файла secret.py (+ подключает SSL-сертификат для шифрованного соединения)
+
+"`{python} {
+from ClientWrapper import DB
 db = DB()
+}"`
+
 
 Методы подклассов:
 Для работы с конкретной таблицей обращаемся к методам вложенных классов "users_info", "urls_info", "visitors_info" по слежующим методам:
@@ -26,6 +31,7 @@ db = DB()
 5) Файл сохранён текстовом формате
 6) При загрузке данных их корректность, полнота и ункальность проверяется только ограничаниями типов, заданных в столбцах таблицы
 
+"`{python} {
 db.users_info.create()
 db.users_info.drop()
 db.users_info.clear()
@@ -33,6 +39,8 @@ db.users_info.clear()
 db.users_info.print()
 db.users_info.print("file_name.csv")
 db.users_info.append_from_file("db_test_files/users_info.csv")
+}"`
+
 
 Методы класса DB:
 - get(column, by)
