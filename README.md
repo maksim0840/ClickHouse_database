@@ -65,9 +65,13 @@ db.users_info.append_from_file("db_test_files/users_info.csv")
   При указании класса column нужно указать через '.' только название столбца, при указании класса by нужно указать через 
 ```python
 
-db.users_info.create()
-db.users_info.drop()
-db.users_info.clear()
+db.get(Column.USERNAME, By.COUNTRY("China"))
+db.delete(By.URL(""))
+db.delete(By.URL(""))
+db.delete(By.URL(""))
+
+user_id = db.create_new_user("198.203.021.122") # регистрация пользователя без 
+user_id = db.create_new_user()
 
 db.users_info.print()
 db.users_info.print("file_name.csv")
