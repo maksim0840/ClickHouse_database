@@ -4,7 +4,8 @@ class Column:
 	синтаксис: [название колонки, название таблицы, 
 				название ключа связанного со второй таблицей (первичный поисковый), 
  			  	название колонки во второй таблице с которым этот ключ связан]
-	"""	
+	"""
+
 	__USERS_INFO_DIFFERENCES = ["users_info", "user_id", "owner_id"]
 	__URLS_INFO_DIFFERENCES = ["urls_info", "url_id", "url_id"]
 	__VISITORS_INFO_DIFFERENCES = ["visitors_info", "resource_id", "url_id"]
@@ -46,6 +47,7 @@ class By:
 	def DATA_COLLECTION(value): return [value] + Column.DATA_COLLECTION
 	def CREATION_DATE(value): return [value] + Column.CREATION_DATE
 
+	def NOTE_ID(value): return [value] + Column.NOTE_ID
 	def RESOURCE_ID(value): return [value] + Column.RESOURCE_ID
 	def VISITOR_IP(value): return [value] + Column.VISITOR_IP
 	def VISIT_DATE(value): return [value] + Column.VISIT_DATE

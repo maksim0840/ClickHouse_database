@@ -1,16 +1,15 @@
-from containers import Column, By
-from secret import client_host, client_user, client_password
+from .containers import Column, By
+from .secret import client_host, client_user, client_password, client_ca_certs
 import clickhouse_driver
-import datetime
 
 class DB:
 	''' Позволяет управлять базой данных и делать к ней запросы '''
 
 	def __init__(self):
 		# Клиент для отправки запросов
-		self.__client = self.__get_db_client(client_host, client_user, client_password)
-		self.__functions = [self.__drop, self.__clear, self.__print, self.__append_from_file]
+		self.__client = self.__get_db_client(client_host, client_user, client_password, client_ca_certs)
 		# Создание экземлпяров классов (доступные таблицы в базе данных)
+		self.__functions = [self.__drop, self.__clear, self.__print, self.__append_from_file, self.get]
 		self.users_info = self.UsersInfo("users_info", self.__client, self.__functions)
 		self.urls_info = self.UrlsInfo("urls_info", self.__client, self.__functions)
 		self.visitors_info = self.VisitorsInfo("visitors_info", self.__client, self.__functions)
@@ -20,7 +19,7 @@ class DB:
 
 
 	# Создаёт клиент для отправки запросов базе данных
-	def __get_db_client(self, db_host, db_user, db_password):
+	def __get_db_client(self, db_host, db_user, db_password, db_ca_certs):
 		client = clickhouse_driver.Client(
 			host=db_host,
             user=db_user,
@@ -28,7 +27,7 @@ class DB:
             port=9440,
             secure=True,
             verify=True,
-            ca_certs='/usr/local/share/ca-certificates/Yandex/RootCA.crt')
+            ca_certs=db_ca_certs)
 		return client
 
 	# Генерация нового UUID (Universally Unique Identifier)
@@ -38,7 +37,7 @@ class DB:
 			""")[0][0]
 		return uuid
 
-		# Удалить таблицу, если она существует
+	# Удалить таблицу, если она существует
 	def __drop(self, table_name):
 		self.__client.execute("""
 			DROP TABLE IF EXISTS {0}
@@ -50,38 +49,48 @@ class DB:
 			TRUNCATE TABLE IF EXISTS {0}
 			""".format(table_name))
 
-	def __print(self, table_name, output = "console"):
+	# Вывод инофрмации из таблицы
+	def __print(self, table_name, output="console", rows=-1):
 		data = self.__client.execute("""
 			SELECT * FROM {0}
 			""".format(table_name))
-		for i in range(len(data)):
+		if (rows > -1):
+			rows = min(rows, len(data))
+		else:
+			rows = len(data)
+		output = str(output)
+
+		for i in range(rows):
 			data[i] = list(map(str, data[i]))
 
-		if (output == "console"):
-			for row in data:
-				print(row)
-		elif (output == "variable"):
+		if (output == "console"): # вывод в консоль
+			for i in range(rows):
+				print(data[i])
+		elif (output == "variable"): # вывод в переменную
 			return data
-		else:
+		else: # вывод в файл
 			with open(output, 'a') as file:
-				for row in data:
-					file.write(';'.join(row) + '\n')
+				for i in range(rows):
+					file.write(';'.join(data[i]) + '\n')
 
-	# Добавить в таблицу данные из файла
+	# Добавить в таблицу данные из файлав
 	def __append_from_file(self, table_name, file_name, input_format):
 		with open(file_name, 'r') as file:
 			data = file.read().split('\n')
 			if (data[-1] == ''):
 				data = data[:-1]
 
+			request = ""
 			for row in data:
 				row = row.split(';')
-				self.__client.execute("""
+				request += "{0},".format(input_format.format(*row))
+
+			self.__client.execute("""
 					INSERT INTO {0} (*)
 					Values {1}
-					""".format(table_name, input_format.format(*row)))
+					""".format(table_name, request))
 
-
+			
 	''' PUBLIC МЕТОДЫ '''
 
 
@@ -89,6 +98,7 @@ class DB:
 	def get(self, column, by):
 		target_column, target_table, target_primary, target_connect = column
 		key_value, key_column, key_table, key_primary, key_connect = by
+
 		# Запрос несвязанных таблиц
 		if ({target_table, key_table} == {"users_info", "visitors_info"}):
 			mid_table = "urls_info" # промежуточный путь
@@ -105,17 +115,19 @@ class DB:
 		# Запрос связанных таблиц
 		else:
 			request = f"""
-				SELECT {target_column} FROM {target_table} WHERE {target_primary} IN
-				(SELECT {target_connect} FROM {key_table} WHERE {key_column}='{key_value}')
+				SELECT {target_column} FROM {target_table} WHERE {key_connect} IN
+				(SELECT {key_primary} FROM {key_table} WHERE {key_column}='{key_value}')
 				"""
+
 		response = self.__client.execute(request)
 		response = list(map(list, response))
 		return response
 
+	# Удаление информации из таблицы
 	def delete(self, by):
 		key_value, key_column, key_table, key_primary, key_connect = by
 
-		if (key_table == "users_info"):
+		if (key_table == "users_info"): # удаление из двух последних таблиц
 			self.__client.execute("""
 				ALTER TABLE visitors_info DELETE WHERE resource_id IN
 				(SELECT url_id FROM urls_info WHERE owner_id IN
@@ -125,12 +137,13 @@ class DB:
 				ALTER TABLE urls_info DELETE WHERE owner_id IN
 				(SELECT user_id FROM users_info WHERE {0}='{1}')
 				""".format(key_column, key_value))
-		elif (key_table == "urls_info"):
+		elif (key_table == "urls_info"): # удаление из последней таблицы
 			self.__client.execute("""
 				ALTER TABLE visitors_info DELETE WHERE resource_id IN
 				(SELECT url_id FROM urls_info WHERE {0}='{1}')
 				""".format(key_column, key_value))
 
+		# Удаление из переданной таблицы
 		self.__client.execute("""
 			ALTER TABLE {0} DELETE WHERE {1}='{2}'
 			""".format(key_table, key_column, key_value))
@@ -140,7 +153,7 @@ class DB:
 		password_from_db = self.get(Column.PASSWORD, By.USERNAME(username))
 		if (password_from_db == []):
 			return None # пользователя с таким ником не существует
-		elif (password_from_db[0] != password):
+		elif (password_from_db[0][0] != password):
 			return False # пароль неверный
 		return True # пароль верный
 
@@ -168,24 +181,24 @@ class DB:
 	# Добавить информацию о новой ссылке
 	def create_new_url(self, owner_id, short_url="", url=""):
 		# Существует ли пользователь (проверка СУЩЕСТВОВАНИЯ поля)
-		if (self.get(Column.USER_ID, By.OWNER_ID(owner_id)) == []):
+		if (self.get(Column.USER_ID, By.USER_ID(owner_id)) == []):
 			return None # пользователя с таким id не существует
 
-		link_id = self.__generateUUID()
+		url_id = self.__generateUUID()
 		# Индикатор, зарегестрирован пользователь на сайте или нет (проверка на ПУСТОТУ поля)
-		data_collection = (self.get(Column.USERNAME, By.USER_ID(owner_id)) != [('',)])
+		data_collection = (self.get(Column.USERNAME, By.USER_ID(owner_id)) != [[""]])
 
 		self.__client.execute("""
 				INSERT INTO urls_info (*) 
 				Values ('{0}', '{1}', '{2}', '{3}', '{4}', now64(3, 'Europe/Moscow'))
-				""".format(link_id, owner_id, short_url, url, data_collection))
-		return link_id
+				""".format(url_id, owner_id, short_url, url, data_collection))
+		return url_id
 
-	# Добавить информафию о переходе на ссылку
+	# Добавить информафию о переходе по ссылке
 	def create_visitor_note(self, resource_id, visitor_ip="0.0.0.0", country="", city=""):
 		# Существует ли ссылка (проверка СУЩЕСТВОВАНИЯ полей и СООТВЕТСТВИЯ требованиям)
 		if ((self.get(Column.URL_ID, By.URL_ID(resource_id)) == []) or
-			(self.get(Column.DATA_COLLECTION, By.URL_ID(resource_id)) == [(False,)])):
+			(self.get(Column.DATA_COLLECTION, By.URL_ID(resource_id)) == [[False]])):
 			return None # ссылки с таким id не существует или аккаунт не зарегестрирован для статистики
 		
 		note_id = self.__generateUUID()
@@ -210,6 +223,7 @@ class DB:
 			self.__clear_function = functions[1]
 			self.__print_function = functions[2]
 			self.__append_from_file_function = functions[3]
+			self.__get_function = functions[4]
 
 		# Переданная функция, удалаяющая таблицу, если она существует
 		def drop(self):
@@ -220,13 +234,19 @@ class DB:
 			self.__clear_function(self.__table)
 
 		# Переданная функция, выводящая информацию из таблицы на экран или в файл
-		def print(self, output="console"):
-			self.__print_function(self.__table, output)
+		def print(self, output="console", rows=-1):
+			return self.__print_function(self.__table, output, rows)
 
 		# Переданная функция, записывающая информацию в таблицу из файла
 		def append_from_file(self, file_name):
 			input_format = "('{0}', '{1}', '{2}', '{3}', parseDateTimeBestEffortOrNull('{4}'))"
 			self.__append_from_file_function(self.__table, file_name, input_format)
+
+		# Вывести все столбцы таблицы по параметру by	
+		def get_all(self, by):
+			column = Column.USER_ID
+			column[0] = "*"
+			return self.__get_function(column, by)
 
 		# Создание таблицы
 		def create(self):
@@ -256,6 +276,7 @@ class DB:
 			self.__clear_function = functions[1]
 			self.__print_function = functions[2]
 			self.__append_from_file_function = functions[3]
+			self.__get_function = functions[4]
 
 		# Переданная функция, удалаяющая таблицу, если она существует
 		def drop(self):
@@ -266,16 +287,19 @@ class DB:
 			self.__clear_function(self.__table)
 
 		# Переданная функция, выводящая информацию из таблицы на экран или в файл
-		def print(self, output="console"):
-			if (output == "console"):
-				self.__print_function(self.__table)
-			else:
-				self.__print_function(self.__table, output)
+		def print(self, output="console", rows=-1):
+			return self.__print_function(self.__table, output, rows)
 
 		# Переданная функция, записывающая информацию в таблицу из файла
 		def append_from_file(self, file_name):
 			input_format = "('{0}', '{1}', '{2}', '{3}', '{4}', parseDateTimeBestEffortOrNull('{5}'))"
 			self.__append_from_file_function(self.__table, file_name, input_format)
+
+		# Вывести все столбцы таблицы по параметру by	
+		def get_all(self, by):
+			column = Column.URL_ID
+			column[0] = "*"
+			return self.__get_function(column, by)
 
 		# Создание таблицы
 		def create(self):
@@ -305,6 +329,7 @@ class DB:
 			self.__clear_function = functions[1]
 			self.__print_function = functions[2]
 			self.__append_from_file_function = functions[3]
+			self.__get_function = functions[4]
 
 		# Переданная функция, удалаяющая таблицу, если она существует
 		def drop(self):
@@ -315,16 +340,19 @@ class DB:
 			self.__clear_function(self.__table)
 
 		# Переданная функция, выводящая информацию из таблицы на экран или в файл
-		def print(self, output="console"):
-			if (output == "console"):
-				self.__print_function(self.__table)
-			else:
-				self.__print_function(self.__table, output)
+		def print(self, output="console", rows=-1):
+			return self.__print_function(self.__table, output, rows)
 
 		# Переданная функция, записывающая информацию в таблицу из файла
 		def append_from_file(self, file_name):
 			input_format = "('{0}', '{1}', '{2}', parseDateTimeBestEffortOrNull('{3}'), '{4}', '{5}')"
 			self.__append_from_file_function(self.__table, file_name, input_format)
+
+		# Вывести все столбцы таблицы по параметру by	
+		def get_all(self, by):
+			column = Column.NOTE_ID
+			column[0] = "*"
+			return self.__get_function(column, by)
 
 		# Создание таблицы
 		def create(self):
@@ -343,25 +371,3 @@ class DB:
 
 				TTL toDateTime(visit_date) + INTERVAL 1 MONTH DELETE 
 				""".format(self.__table))
-
-db = DB()
-# db.users_info.clear()
-# db.urls_info.clear()
-# db.visitors_info.clear()
-# db.users_info.append_from_file("db_test_files/users_info.csv")
-# db.urls_info.append_from_file("db_test_files/urls_info.csv")
-# db.visitors_info.append_from_file("db_test_files/visitors_info.csv")
-#print(db.get(Column.PASSWORD, By.USERNAME("Zagit")))
-print(db.create_new_user("0.0.0.0", "Zagiit", "password"))
-#print(db.create_visitor_note("410bef63-35ed-4bd0-9f73-2c757f9a7da0"))
-#db.get(Column.USER_ID, by.USERNAME("kukaracha"))
-#print(Column.USER_ID, by.USERNAME("kukaracha"))
-# db.users_info.get(Column.USER_ID, by.USERNAME("kukaracha"))
-# print(By.USERNAME("kukaracha"))
-
-# db.users_info.create()
-# db.users_info.drop()
-# db.urls_info.create()
-# db.urls_info.drop()
-# db.visitors_info.create()
-# db.visitors_info.drop()
