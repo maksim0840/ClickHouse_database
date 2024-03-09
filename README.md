@@ -7,7 +7,7 @@
 
 Архитектура программы
 ===================================
-![program_architecture](https://github.com/maksim0840/ClickHouse_database/assets/117035413/0fef1c4a-f86d-47e4-9f66-5411c54fceeb)
+![program_architecture](https://github.com/maksim0840/ClickHouse_database/assets/117035413/ef84e604-8adf-4747-a888-cde2cd6e825b)
 
 QuickStart
 ===================================
