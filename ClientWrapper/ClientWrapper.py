@@ -2,10 +2,21 @@ from .containers import Column, By
 from .secret import client_host, client_user, client_password, client_ca_certs
 import clickhouse_driver
 
-class DB:
+class DB: # singleton class
 	''' Позволяет управлять базой данных и делать к ней запросы '''
+	__instance = None # ссылка на экземлпяр класса
+	
+	def __new__(cls, *args, **kwargs): # выполняется до создания экземпляра
+		# Если до создания экземпляра ссылка уже суещствует, то объект уже создавался ранее
+		# => передаём ссылку на уже сеществующий (в программе не должно быть 2 разных объекта)
+		if (cls.__instance is None):
+			cls.__instance = super().__new__(cls)
+		return cls.__instance
 
-	def __init__(self):
+	def __del__(self): # выполняется при удалении объекта
+		DB.__instance = None # если объект удалён, то можно создать новый
+		
+	def __init__(self): # выполняется после создания экземпляра
 		# Клиент для отправки запросов
 		self.__client = self.__get_db_client(client_host, client_user, client_password, client_ca_certs)
 		# Создание экземлпяров классов (доступные таблицы в базе данных)
